@@ -158,8 +158,11 @@ class ElementInstagramFeed extends BaseElement implements Flushable
                 $instagram = $this->InstagramInstance();
                 if ($latestAuthObj->LastEdited < $agoHard) {
                     Injector::inst()->get(LoggerInterface::class)->info('Instagram token expired!');
-                } elseif ($LongLivedToken = $instagram->refreshLongLivedToken($latestAuthObj->LongLivedToken, true)) {
-                    $latestAuthObj->LongLivedToken = $LongLivedToken;
+                } else {
+                    $LongLivedToken = $latestAuthObj->LongLivedToken;
+                    $instagram->setAccessToken($LongLivedToken);
+                    $LongLivedToken = $instagram->refreshLongLivedToken($latestAuthObj->LongLivedToken, true);
+                    $latestAuthObj->LongLivedToken = $LongLivedToken->access_token;
                     $latestAuthObj->write();
                 }
             } else {
