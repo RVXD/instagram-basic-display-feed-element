@@ -16,17 +16,29 @@ class InstaAuthController extends Controller
     public function index(HTTPRequest $request)
     {
         // parse referer to check if XY.instagram.com is calling
-        $ref = $request->getHeaders();
-        $ref = parse_url($ref['referer']);
-        $ref = $ref['host'];
-        $hostName = explode(".", $ref);
-        $mainDomainName = $hostName[count($hostName) - 2] . "." . $hostName[count($hostName) - 1];
+        // $ref = $request->getHeaders();
+        // $ref = parse_url($ref['referer']);
+        // $ref = $ref['host'];
+        // $hostName = explode(".", $ref);
+        // $mainDomainName = $hostName[count($hostName) - 2] . "." . $hostName[count($hostName) - 1];
 
-        if ($request->getVar('code') && $mainDomainName == 'instagram.com') {
+        // if ($request->getVar('code') && $mainDomainName == 'instagram.com') {
+
+            $instacredentials = $this->config()->get('credentials');
+
+            // Handle Facebook webhook verification
+            if ($request->getVar('hub_mode') === 'subscribe') {
+                $verificationToken = Environment::getEnv('KRAFT_INSTAFEED_VERIFICATION_TOKEN') ?: $instacredentials['verificationToken'];
+                if ($request->getVar('hub_verify_token') === $verificationToken) {
+                    return $request->getVar('hub_challenge');
+                } else {
+                    return $this->httpError(403);
+                }
+            }
+
             $AuthObj = InstaAuthObj::create();
             $redirectUri = $this->getAuthControllerRoute();
 
-            $instacredentials = $this->config()->get('credentials');
             $appId = Environment::getEnv('KRAFT_INSTAFEED_APP_ID') ?: $instacredentials['appId'];
             $appSecret = Environment::getEnv('KRAFT_INSTAFEED_APP_SECRET') ?: $instacredentials['appSecret'];
 
@@ -36,8 +48,8 @@ class InstaAuthController extends Controller
                 'redirectUri' => $redirectUri
             ]);
 
-            $token = $instagram->getOAuthToken($request->getVar('code'), false);
-            $LongLivedToken = $instagram->getLongLivedToken($token->access_token, true);
+            $token = $instagram->getOAuthToken($request->getVar('code'), true);
+            $LongLivedToken = $instagram->getLongLivedToken($token, true);
 
             if ($LongLivedToken) {
                 $AuthObj->LongLivedToken = $LongLivedToken->access_token;
@@ -49,9 +61,9 @@ class InstaAuthController extends Controller
                     'Content' => $obj
                 ];
             }
-        } else {
-            return $this->httpError(404);
-        }
+        // } else {
+        //     return $this->httpError(404);
+        // }
     }
 
     public static function getAuthControllerRoute()
@@ -62,7 +74,7 @@ class InstaAuthController extends Controller
         if ($instacredentials && array_key_exists('redirectUri', $instacredentials)) {
             $url = $instacredentials['redirectUri'];
         } else {
-            $url = Controller::join_links(Director::absoluteBaseURL(), '_instaauth/');
+            $url = Controller::join_links(Director::absoluteBaseURL(), '_instaauth');
         }
         return $url;
     }

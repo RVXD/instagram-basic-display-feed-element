@@ -22,6 +22,7 @@ use SilverStripe\Forms\GridField\GridFieldConfig_Base;
 use SilverStripe\Forms\GridField\GridFieldDataColumns;
 use SilverStripe\Forms\GridField\GridFieldDeleteAction;
 use Kraftausdruck\InstagramFeed\Control\InstaAuthController;
+use SilverStripe\Forms\GridField\GridFieldConfig_RecordEditor;
 
 class ElementInstagramFeed extends BaseElement implements Flushable
 {
@@ -71,7 +72,7 @@ class ElementInstagramFeed extends BaseElement implements Flushable
             $message = _t(__CLASS__ . '.APIValuesMissing', 'API: {missing} are missing.', ['missing' => $missing]);
             $fields->unshift(
                 LiteralField::create(
-                    'HeroNeeded',
+                    'APIValuesMissing',
                     sprintf(
                         '<p class="alert alert-warning">%s</p>',
                         $message
@@ -90,35 +91,41 @@ class ElementInstagramFeed extends BaseElement implements Flushable
             $LimitField->setDescription(_t(self::class . '.LIMITFIELDDESCRIPTION', '0 = all | default 4'));
         }
 
+        $verificationToken = Environment::getEnv('KRAFT_INSTAFEED_VERIFICATION_TOKEN') ?: ($instaCredentials['verificationToken'] ?? null);
         $fields->addFieldsToTab('Root.Settings', [
             HeaderField::create('InstagramAPI', 'Instagram API'),
-            $redirectUriField = TextField::create('redirectUriTEXT', 'redirectUri', InstaAuthController::getAuthControllerRoute())
+            $redirectUriField = TextField::create('redirectUriTEXT', 'redirectUri', InstaAuthController::getAuthControllerRoute())->setReadonly(true),
+            $verificationTokenField = TextField::create('verificationTokenTEXT', 'verificationToken', $verificationToken)->setReadonly(true)
         ]);
-        $redirectUriField->setReadonly(true);
+
         $redirectUriField->setDescription(_t(self::class . '.REDIRECTURIFIELDDESCRIPTION', 'This URL must be deposited in the FB application!'));
+        $verificationTokenField->setDescription(_t(self::class . '.REDIRECTURIFIELDDESCRIPTION', 'This URL must be deposited in the FB application!'));
 
         if (!$this->getLatestToken()) {
+            $instagram = $this->InstagramInstance();
+
             $fields->addFieldToTab(
                 'Root.Settings',
-                LiteralField::create('getLoginURL', _t(self::class . '.LOGINURLDESCRIPTION', 'Generate a API token with the link below') . '<br/> <a href="' . $this->getLoginURL() . '" target="_blank" rel="noopener">' . $this->getLoginURL() . '</a><br/>')
+                LiteralField::create('getLoginURL', _t(self::class . '.LOGINURLDESCRIPTION', 'Generate a API token with the link below') . '<br/> <a href="' . $instagram->getLoginUrl() . '" target="_blank" rel="noopener">' . $this->getLoginURL() . '</a><br/>')
             );
-        } else {
-            $InstaAuthObjGridFieldConfig = GridFieldConfig_Base::create(20);
-            $InstaAuthObjGridFieldConfig->addComponents(
-                new GridFieldDeleteAction()
-            );
-            $gridField = new GridField('InstaAuthObj', _t(self::class . '.INSTAGRAMAUTHTOKENTITLE', 'Instagram Auth Token - latest one \'ll be used'), InstaAuthObj::get()->sort('LastEdited DESC'), $InstaAuthObjGridFieldConfig);
-            $gridField->setDescription(_t(self::class . '.INSTAGRAMAUTHTOKENDESCRIPTION', 'You\'ll retrieve a link to generate a new Token if no one is present.'));
-
-            $InstaAuthObjGridFieldConfig->getComponentByType(GridFieldDataColumns::class)->setDisplayFields([
-                'user_id' => 'User ID',
-                'Created' => 'Crated',
-                'LastEdited' => 'Updated',
-                'LongLivedToken.LimitCharacters' => '60 days token'
-            ]);
-
-            $fields->addFieldToTab('Root.Settings', $gridField);
         }
+
+        // $InstaAuthObjGridFieldConfig = GridFieldConfig_Base::create(20);
+        $InstaAuthObjGridFieldConfig = GridFieldConfig_RecordEditor::create();
+        $InstaAuthObjGridFieldConfig->addComponents(
+            new GridFieldDeleteAction()
+        );
+        $gridField = new GridField('InstaAuthObj', _t(self::class . '.INSTAGRAMAUTHTOKENTITLE', 'Instagram Auth Token - latest one \'ll be used'), InstaAuthObj::get()->sort('LastEdited DESC'), $InstaAuthObjGridFieldConfig);
+        $gridField->setDescription(_t(self::class . '.INSTAGRAMAUTHTOKENDESCRIPTION', 'You\'ll retrieve a link to generate a new Token if no one is present.'));
+
+        $InstaAuthObjGridFieldConfig->getComponentByType(GridFieldDataColumns::class)->setDisplayFields([
+            'user_id' => 'User ID',
+            'Created' => 'Crated',
+            'LastEdited' => 'Updated',
+            'LongLivedToken.LimitCharacters' => '60 days token'
+        ]);
+
+        $fields->addFieldToTab('Root.Settings', $gridField);
 
         return $fields;
     }
@@ -150,26 +157,25 @@ class ElementInstagramFeed extends BaseElement implements Flushable
     private function getLatestToken()
     {
         $latestAuthObj = InstaAuthObj::get()->first();
+        $agoSoft = date('Y-m-d H:i:s', strtotime('-30 days'));
+        $agoHard = date('Y-m-d H:i:s', strtotime('-60 days'));
+        $instagram = $this->InstagramInstance();
 
         if ($latestAuthObj) {
-            $agoSoft = date('Y-m-d H:i:s', strtotime('-30 days'));
-            $agoHard = date('Y-m-d H:i:s', strtotime('-60 days'));
+            $LongLivedToken = $latestAuthObj->LongLivedToken;
             if ($latestAuthObj->LastEdited < $agoSoft) {
-                $instagram = $this->InstagramInstance();
                 if ($latestAuthObj->LastEdited < $agoHard) {
                     Injector::inst()->get(LoggerInterface::class)->info('Instagram token expired!');
                 } else {
-                    $LongLivedToken = $latestAuthObj->LongLivedToken;
                     $instagram->setAccessToken($LongLivedToken);
                     $LongLivedToken = $instagram->refreshLongLivedToken($latestAuthObj->LongLivedToken, true);
-                    $latestAuthObj->LongLivedToken = $LongLivedToken->access_token;
+                    $latestAuthObj->LongLivedToken = $LongLivedToken = $LongLivedToken->access_token;
                     $latestAuthObj->write();
                 }
-            } else {
-                $LongLivedToken = $latestAuthObj->LongLivedToken;
             }
             return $LongLivedToken;
         }
+        return false;
     }
 
     public function getInstagramFeed()

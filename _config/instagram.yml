@@ -16,4 +16,5 @@ SilverStripe\Core\Injector\Injector:
 #   credentials:
 #     appId: ''
 #     appSecret: ''
-#     # redirectUri: 'https://domain.tld/_instaauth/'
+      verificationToken: 'SetThisToSomethingRandom'
+#     # redirectUri: 'https://domain.tld/_instaauth'
